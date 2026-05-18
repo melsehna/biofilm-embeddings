@@ -75,11 +75,9 @@ class ProcessedTifDataset(Dataset):
                  .unsqueeze(1)               # (T, 1, H, W)
                  .float()
         )
-        frames = F.interpolate(
-            frames, size=self.imageSize,
-            mode='bicubic', align_corners=False,
-        )
 
+        # Detect source format *before* resizing — bicubic interpolation rings
+        # at sharp edges and can push a clean [0, 1] stack to e.g. [-0.13, 0.67].
         amin = float(frames.min())
         amax = float(frames.max())
         if -1e-3 <= amin and amax <= 1.0 + 1e-3:
@@ -99,6 +97,11 @@ class ProcessedTifDataset(Dataset):
                 f'silently rescale — file may be raw uint8/uint16 or an '
                 f'unrecognized format.'
             )
+
+        frames = F.interpolate(
+            frames, size=self.imageSize,
+            mode='bicubic', align_corners=False,
+        )
         frames = frames.clamp(0.0, 1.0)
 
         # 1-channel grayscale → 3-channel for DINOv2's RGB patch embedding
