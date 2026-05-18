@@ -24,7 +24,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QProgressBar, QTextEdit, QMessageBox,
+    QProgressBar, QTextEdit, QMessageBox, QCheckBox,
 )
 from PySide6.QtCore import QObject, QThread, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
@@ -579,6 +579,13 @@ class RunTab(QWidget):
         self.stopBtn.setEnabled(False)
         self.stopBtn.clicked.connect(self._stop)
         phase1Row.addWidget(self.stopBtn)
+
+        self.chainExtractBox = QCheckBox('Extract embeddings when done')
+        self.chainExtractBox.setToolTip(
+            'When phase 1 finishes cleanly, automatically start phase 2 '
+            '(DINOv2 extraction) with the current settings.'
+        )
+        phase1Row.addWidget(self.chainExtractBox)
         phase1Row.addStretch()
         layout.addLayout(phase1Row)
 
@@ -590,7 +597,7 @@ class RunTab(QWidget):
             'single GPU sweep over all _processed.tif files. Writes '
             '<outputRoot>/embeddings/cls_cache.pt.'
         )
-        self.extractBtn.clicked.connect(self._extract)
+        self.extractBtn.clicked.connect(lambda: self._extract())
         phase2Row.addWidget(self.extractBtn)
 
         self.openOutputBtn = QPushButton('Open output folder')
@@ -625,6 +632,7 @@ class RunTab(QWidget):
 
         self.logText.clear()
         self._stopEvent.clear()
+        self._phase1Errored = False
         self._runStartTime = time.perf_counter()
 
         self.startBtn.setEnabled(False)
@@ -651,7 +659,7 @@ class RunTab(QWidget):
         self.logText.append('Stopping...')
         self.stopBtn.setEnabled(False)
 
-    def _extract(self):
+    def _extract(self, clearLog=True):
         outputRoot = self.state.get('outputDir', '')
         if not outputRoot or not os.path.isdir(outputRoot):
             self.logText.append('ERROR: Set an output directory in the Setup tab first.')
@@ -659,7 +667,8 @@ class RunTab(QWidget):
 
         stateDict = self.state.to_dict()
 
-        self.logText.clear()
+        if clearLog:
+            self.logText.clear()
         self._stopEvent.clear()
         self._runStartTime = time.perf_counter()
 
@@ -737,12 +746,14 @@ class RunTab(QWidget):
 
     def _onError(self, msg):
         self.logText.append(f'ERROR: {msg}')
+        self._phase1Errored = True
 
     def _onFinished(self):
         self.startBtn.setEnabled(True)
         self.extractBtn.setEnabled(True)
         self.stopBtn.setEnabled(False)
         stopped = self._stopEvent.is_set()
+        errored = getattr(self, '_phase1Errored', False)
         if stopped:
             self.logText.append('\nStopped by user.')
             self.statusLabel.setText('Stopped')
@@ -759,3 +770,9 @@ class RunTab(QWidget):
             self._thread.wait()
             self._thread = None
             self._worker = None
+
+        if not stopped and not errored and self.chainExtractBox.isChecked():
+            self.logText.append('\n' + '=' * 60)
+            self.logText.append('Phase 1 finished — auto-starting phase 2.')
+            self.logText.append('=' * 60)
+            self._extract(clearLog=False)
