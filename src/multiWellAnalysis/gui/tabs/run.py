@@ -566,8 +566,42 @@ class RunTab(QWidget):
         self._runStartTime = None
         self._buildUi()
 
+    def _probeDevice(self):
+        """Return (hasCuda: bool, label: str) for the current process.
+
+        `torch.cuda.is_available()` uses NVML in modern PyTorch and does not
+        initialize a CUDA context, so this is safe to call before phase 1
+        forks worker processes.
+        """
+        try:
+            import torch
+            if torch.cuda.is_available():
+                name = torch.cuda.get_device_name(0)
+                return True, f'GPU: {name} (CUDA {torch.version.cuda})'
+            cudaVer = getattr(torch.version, 'cuda', None)
+            if cudaVer is None:
+                return False, (
+                    'GPU: not available — installed torch is CPU-only '
+                    '(torch.version.cuda is None). Reinstall with the CUDA wheel.'
+                )
+            return False, (
+                f'GPU: not available — torch built against CUDA {cudaVer} '
+                f'but no device visible. Check NVIDIA driver / nvidia-smi.'
+            )
+        except Exception as e:
+            return False, f'GPU: probe failed ({e})'
+
+    def _refreshDeviceStatus(self):
+        ok, label = self._probeDevice()
+        self.deviceLabel.setText(label)
+        color = '#2a7' if ok else '#c33'
+        self.deviceLabel.setStyleSheet(f'color: {color}; font-weight: bold;')
+
     def _buildUi(self):
         layout = QVBoxLayout(self)
+
+        self.deviceLabel = QLabel('GPU: probing…')
+        layout.addWidget(self.deviceLabel)
 
         # Phase 1
         phase1Row = QHBoxLayout()
@@ -622,6 +656,8 @@ class RunTab(QWidget):
         self.logText.setReadOnly(True)
         layout.addWidget(self.logText, stretch=1)
 
+        self._refreshDeviceStatus()
+
     def _start(self):
         plates = self.state.get('plates', [])
         if not plates:
@@ -664,6 +700,27 @@ class RunTab(QWidget):
         if not outputRoot or not os.path.isdir(outputRoot):
             self.logText.append('ERROR: Set an output directory in the Setup tab first.')
             return
+
+        hasCuda, deviceLabel = self._probeDevice()
+        if not hasCuda:
+            reply = QMessageBox.question(
+                self,
+                'No GPU detected',
+                f'{deviceLabel}\n\n'
+                f'Phase 2 will fall back to CPU. For a typical run '
+                f'(~1200 wells × 31 frames) that takes hours to days, '
+                f'versus minutes on a GPU.\n\n'
+                f'Continue on CPU anyway?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                self.logText.append(
+                    '\nPhase 2 cancelled — no GPU available. '
+                    'See the device line at the top of this tab for the cause.'
+                )
+                self.statusLabel.setText('Cancelled (no GPU)')
+                return
 
         stateDict = self.state.to_dict()
 
