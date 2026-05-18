@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "microtyper-vision"
+version = "0.1.0"
+description = "µTyper-Vision: biofilm image processing + DINOv2 ViT embedding extraction with a PySide6 GUI"
+authors = [
+  { name="Seh Na S. Mellick" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "scikit-image",
+    "scikit-learn",
+    "opencv-python",
+    "pandas",
+    "matplotlib",
+    "tifffile",
+    "imageio",
+    "imageio-ffmpeg",
+    "tqdm",
+    "PySide6",
+    # torch>=2.7 — first stable release with Blackwell sm_120 SASS kernels in
+    # the default PyPI wheels. Lower versions silently fail on RTX 50-series
+    # with "no kernel image is available for execution on the device" at the
+    # first forward pass.
+    "torch>=2.7",
+    "transformers",
+]
+
+[project.optional-dependencies]
+analysis = [
+    "umap-learn",
+    "scikit-fda",
+    "pyarrow",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+mtv-gui = "multiWellAnalysis.gui.app:run"

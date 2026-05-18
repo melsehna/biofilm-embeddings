@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+results/
+*.pt
+*.npz
+*.tif
+*.mp4
+experiment_config.json
+*.md
+!README.md
