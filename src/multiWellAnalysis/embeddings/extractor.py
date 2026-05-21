@@ -114,6 +114,14 @@ def _extractFeatures(model, dataset, batchDir, params, device, progressFn,
     if not pendingIdx:
         return totalBatches
 
+    # Use 'spawn' start method for DataLoader workers on Linux so they don't
+    # inherit a (possibly broken) CUDA context from the GUI process. Without
+    # this, running Test Well first — or anything else that initializes CUDA
+    # in the parent — causes the forked workers to die with a broken pipe at
+    # first batch read.
+    import multiprocessing as mp
+    mpCtx = mp.get_context('spawn') if nWorkers > 0 else None
+
     loader = DataLoader(
         torch.utils.data.Subset(dataset, pendingIdx),
         batch_size=wellBatch,
@@ -121,6 +129,8 @@ def _extractFeatures(model, dataset, batchDir, params, device, progressFn,
         num_workers=nWorkers,
         pin_memory=True,
         prefetch_factor=prefetch if nWorkers > 0 else None,
+        multiprocessing_context=mpCtx,
+        persistent_workers=False,
     )
 
     pendingBatches = sorted(set(range(totalBatches)) - done)

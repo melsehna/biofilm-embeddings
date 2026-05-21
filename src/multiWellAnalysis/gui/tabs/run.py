@@ -569,25 +569,42 @@ class RunTab(QWidget):
     def _probeDevice(self):
         """Return (hasCuda: bool, label: str) for the current process.
 
-        `torch.cuda.is_available()` uses NVML in modern PyTorch and does not
-        initialize a CUDA context, so this is safe to call before phase 1
-        forks worker processes.
+        Must NOT initialize CUDA in the GUI process — phase 1's
+        ProcessPoolExecutor and phase 2's DataLoader both fork from here on
+        Linux, and an initialized CUDA context in the parent leaves forked
+        children with a broken CUDA state (BrokenPipeError at first read).
+
+        Strategy:
+          1. `torch.cuda.is_available()` is NVML-based on torch>=2.0 and does
+             not init CUDA.
+          2. For the human-readable device name, shell out to `nvidia-smi`
+             instead of calling `torch.cuda.get_device_name()` (which DOES
+             init CUDA via `_lazy_init`).
         """
         try:
             import torch
-            if torch.cuda.is_available():
-                name = torch.cuda.get_device_name(0)
-                return True, f'GPU: {name} (CUDA {torch.version.cuda})'
             cudaVer = getattr(torch.version, 'cuda', None)
-            if cudaVer is None:
+            if not torch.cuda.is_available():
+                if cudaVer is None:
+                    return False, (
+                        'GPU: not available — installed torch is CPU-only '
+                        '(torch.version.cuda is None). Reinstall with the CUDA wheel.'
+                    )
                 return False, (
-                    'GPU: not available — installed torch is CPU-only '
-                    '(torch.version.cuda is None). Reinstall with the CUDA wheel.'
+                    f'GPU: not available — torch built against CUDA {cudaVer} '
+                    f'but no device visible. Check NVIDIA driver / nvidia-smi.'
                 )
-            return False, (
-                f'GPU: not available — torch built against CUDA {cudaVer} '
-                f'but no device visible. Check NVIDIA driver / nvidia-smi.'
-            )
+
+            import subprocess
+            try:
+                result = subprocess.run(
+                    ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
+                    capture_output=True, text=True, timeout=2,
+                )
+                name = result.stdout.strip().splitlines()[0] if result.returncode == 0 else 'detected'
+            except Exception:
+                name = 'detected'
+            return True, f'GPU: {name} (CUDA {cudaVer})'
         except Exception as e:
             return False, f'GPU: probe failed ({e})'
 
