@@ -160,18 +160,35 @@ def timelapseProcessing(
 
     _progress('Saving outputs...')
 
-    # Build the display rendering: re-run local-contrast on rawCropped with a
-    # midpoint bias (fpMean), then clip. This is the same path as the overlay,
-    # so the saved processed TIFF and the overlay are photometrically consistent
-    # — and unlike a min-max stretch, the local-contrast subtraction gives every
-    # well a shared "background = fpMean" reference rather than rescaling each
-    # well's range to fill [0,1] independently.
-    fpMean = 0.5 * (np.nanmax(rawCropped) + np.nanmin(rawCropped))
-    displayStack = np.clip(
-        normalizeLocalContrastOutput(rawCropped, blockDiameter, fpMean),
+    # Display rendering: re-run local-contrast on rawCropped with an additive
+    # offset (fpMean), then clip. The additive offset is purely cosmetic —
+    # it picks the gray level at which background renders. The local-contrast
+    # term `img - meanImg` carries the biological signal and is independent
+    # of this choice.
+    #
+    # On this experimental branch we save BOTH renderings side by side for
+    # visual + downstream comparison. See ISSUES.md (Issue 2) and
+    # JULIA_REFERENCE_COMPARISON.md for the motivation.
+    #
+    #   _processed.tif         — adaptive fpMean (current main-branch behavior;
+    #                            consumed by phase 2 DINOv2 extraction, the
+    #                            overlay MP4, and any downstream that expects
+    #                            the historical filename)
+    #   _processed_fpHalf.tif  — fixed fpMean = 0.5 (experimental; uniform
+    #                            background gray across every well in every
+    #                            batch, no per-well midpoint drift)
+    fpMeanAdaptive = 0.5 * (np.nanmax(rawCropped) + np.nanmin(rawCropped))
+    displayStackAdaptive = np.clip(
+        normalizeLocalContrastOutput(rawCropped, blockDiameter, fpMeanAdaptive),
         0.0, 1.0,
     )
-    saveStack(displayStack, processedDir, f"{filename}_processed")
+    saveStack(displayStackAdaptive, processedDir, f"{filename}_processed")
+
+    displayStackFixed = np.clip(
+        normalizeLocalContrastOutput(rawCropped, blockDiameter, 0.5),
+        0.0, 1.0,
+    )
+    saveStack(displayStackFixed, processedDir, f"{filename}_processed_fpHalf")
 
     saveStack(rawCropped, processedDir, f"{filename}_registered_raw")
 
@@ -181,7 +198,7 @@ def timelapseProcessing(
 
     if not skipOverlay:
         overlayPath = os.path.join(processedDir, f'{filename}_overlay.mp4')
-        writeOverlayVideo(displayStack, masks, overlayPath, label=label)
+        writeOverlayVideo(displayStackAdaptive, masks, overlayPath, label=label)
         _registerImage('overlay_mp4', overlayPath)
 
     return masks, biomass, odMean
