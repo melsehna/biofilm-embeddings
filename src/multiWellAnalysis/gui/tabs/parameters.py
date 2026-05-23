@@ -11,6 +11,37 @@ def _maxWorkers():
     return max(1, int(cpus * 0.75))
 
 
+class _CollapsibleGroupBox(QGroupBox):
+    """QGroupBox that hides its child widgets when its title checkbox is off.
+
+    Default is collapsed. Click the title to expand/collapse. Useful for
+    tucking away advanced/rarely-changed parameters so they don't clutter
+    the main form but are still discoverable.
+    """
+    def __init__(self, title, parent=None):
+        super().__init__(title, parent)
+        self.setCheckable(True)
+        self.setChecked(False)
+        self.toggled.connect(self._onToggle)
+
+    def setLayout(self, layout):
+        super().setLayout(layout)
+        self._setChildrenVisible(self.isChecked())
+
+    def _onToggle(self, checked):
+        self._setChildrenVisible(checked)
+
+    def _setChildrenVisible(self, visible):
+        layout = self.layout()
+        if layout is None:
+            return
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            w = item.widget()
+            if w:
+                w.setVisible(visible)
+
+
 _DINOV2_MODELS = [
     'facebook/dinov2-small',
     'facebook/dinov2-base',
@@ -65,6 +96,13 @@ class ParametersTab(QWidget):
         self.dustCorrection.setChecked(self.state.get('dustCorrection', True))
         preprocForm.addRow(self.dustCorrection)
 
+        preprocGroup.setLayout(preprocForm)
+        layout.addWidget(preprocGroup)
+
+        # ── Advanced (registration) — collapsed by default ──────────────────
+        advGroup = _CollapsibleGroupBox('Advanced (registration)')
+        advForm = QFormLayout()
+
         self.fftStride = QSpinBox()
         self.fftStride.setRange(1, 30)
         self.fftStride.setValue(self.state.get('fftStride', 6))
@@ -74,10 +112,32 @@ class ParametersTab(QWidget):
             'phase 1 but let sub-pixel drift accumulate between keyframes, '
             'which can cause downstream colony-label flips.'
         )
-        preprocForm.addRow('FFT stride (registration keyframe step):', self.fftStride)
+        advForm.addRow('FFT stride (keyframe step):', self.fftStride)
 
-        preprocGroup.setLayout(preprocForm)
-        layout.addWidget(preprocGroup)
+        self.downsample = QSpinBox()
+        self.downsample.setRange(1, 16)
+        self.downsample.setValue(self.state.get('downsample', 4))
+        self.downsample.setToolTip(
+            'Downsampling factor applied to each frame BEFORE the FFT phase '
+            'correlation. 1 = full resolution (most precise, slowest). 4 '
+            '(default) is a good trade-off; quadratic FFT cost means 1 is '
+            '~16x slower than 4 per FFT call.'
+        )
+        advForm.addRow('FFT downsample factor:', self.downsample)
+
+        self.shiftThresh = QSpinBox()
+        self.shiftThresh.setRange(1, 1000)
+        self.shiftThresh.setValue(self.state.get('shiftThresh', 50))
+        self.shiftThresh.setToolTip(
+            'Maximum per-step shift (in pixels) the registrar will accept '
+            'from one FFT before rejecting it as a spurious peak. Raise if '
+            'frames legitimately drift far between keyframes; lower if you '
+            'have transient artifacts that fool the registrar.'
+        )
+        advForm.addRow('Shift threshold (px):', self.shiftThresh)
+
+        advGroup.setLayout(advForm)
+        layout.addWidget(advGroup)
 
         # ── Per-magnification overrides ──────────────────────────────────────
         magGroup = QGroupBox('Per-Magnification Overrides')
@@ -233,6 +293,10 @@ class ParametersTab(QWidget):
             lambda v: self.state.set('dustCorrection', v))
         self.fftStride.valueChanged.connect(
             lambda v: self.state.set('fftStride', v))
+        self.downsample.valueChanged.connect(
+            lambda v: self.state.set('downsample', v))
+        self.shiftThresh.valueChanged.connect(
+            lambda v: self.state.set('shiftThresh', v))
 
         self.dinov2Model.currentTextChanged.connect(
             lambda t: self.state.set('dinov2Model', t))
@@ -362,7 +426,8 @@ class ParametersTab(QWidget):
         widgets = [
             self.saveOverlays, self.dustCorrection,
             self.saveRegistered, self.saveProcessed, self.saveMasks, self.copyRaw,
-            self.blockDiam, self.fixedThresh, self.fftStride, self.workers,
+            self.blockDiam, self.fixedThresh,
+            self.fftStride, self.downsample, self.shiftThresh, self.workers,
             self.dinov2Model, self.imageSize, self.extractCls, self.extractPatches,
             self.patchGridSize, self.extractionWellBatch, self.extractionWorkers,
         ]
@@ -378,6 +443,8 @@ class ParametersTab(QWidget):
         self.blockDiam.setValue(self.state.get('blockDiam', 101))
         self.fixedThresh.setValue(self.state.get('fixedThresh', 0.04))
         self.fftStride.setValue(self.state.get('fftStride', 6))
+        self.downsample.setValue(self.state.get('downsample', 4))
+        self.shiftThresh.setValue(self.state.get('shiftThresh', 50))
         self.workers.setValue(min(self.state.get('workers', 4), _maxWorkers()))
 
         currentModel = self.state.get('dinov2Model', 'facebook/dinov2-base')
