@@ -96,18 +96,23 @@ def _processOneWell(platePath, outdir, wellId, wellFiles, params):
     try:
         t0 = time.perf_counter()
 
+        # Preserve source dtype (typically uint16) so the downstream
+        # _toBitDepthScaled() can use np.iinfo(dtype).max for exact scaling.
+        # Casting to float32 here would force _toBitDepthScaled into its
+        # observed-max heuristic, which misclassifies dim uint16 wells
+        # (max < 256) as uint8 and over-scales by 256×. See ISSUES.md.
         if isinstance(wellFiles, str):
             raw = tifffile.imread(wellFiles)
-            stack = raw[np.newaxis].astype(np.float32) if raw.ndim == 2 else raw.astype(np.float32)
+            stack = raw[np.newaxis] if raw.ndim == 2 else raw
             del raw
         else:
             first = tifffile.imread(wellFiles[0])
             h, w = first.shape[:2]
-            stack = np.empty((len(wellFiles), h, w), dtype=np.float32)
-            stack[0] = first.astype(np.float32)
+            stack = np.empty((len(wellFiles), h, w), dtype=first.dtype)
+            stack[0] = first
             del first
             for fi in range(1, len(wellFiles)):
-                stack[fi] = tifffile.imread(wellFiles[fi]).astype(np.float32)
+                stack[fi] = tifffile.imread(wellFiles[fi])
 
         if stack.ndim == 3 and stack.shape[0] < stack.shape[2]:
             stack = np.transpose(stack, (1, 2, 0))

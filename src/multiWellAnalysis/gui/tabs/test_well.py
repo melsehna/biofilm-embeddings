@@ -308,25 +308,26 @@ class TestWellTab(QWidget):
                 self._runLog.emit(f'Loading {wellId}…')
                 self._runProgress.emit('Loading', 0, 4)
 
+                # Preserve source dtype — see _processOneWell in run.py / ISSUES.md.
                 if isinstance(source, str):
                     raw = tifffile.imread(source)
                     if raw.ndim == 2:
-                        stack = raw[np.newaxis].astype(np.float32)
+                        stack = raw[np.newaxis]
                     else:
-                        stack = raw.astype(np.float32)
+                        stack = raw
                     del raw
                 else:
                     first = tifffile.imread(source[0])
                     h, w = first.shape[:2]
-                    stack = np.empty((len(source), h, w), dtype=np.float32)
-                    stack[0] = first.astype(np.float32)
+                    stack = np.empty((len(source), h, w), dtype=first.dtype)
+                    stack[0] = first
                     del first
                     for fi in range(1, len(source)):
                         if stop.is_set():
                             self._runFinished.emit(None)
                             return
                         self._runLog.emit(f'Loading frame {fi+1}/{len(source)}…')
-                        stack[fi] = tifffile.imread(source[fi]).astype(np.float32)
+                        stack[fi] = tifffile.imread(source[fi])
 
                 # ensure (H, W, T)
                 if stack.ndim == 3 and stack.shape[0] < stack.shape[2]:
