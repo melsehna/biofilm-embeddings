@@ -1,8 +1,8 @@
 import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
-    QSpinBox, QDoubleSpinBox, QCheckBox, QLabel, QComboBox,
-    QPushButton, QListWidget, QScrollArea,
+    QSpinBox, QDoubleSpinBox, QCheckBox, QLabel, QLineEdit, QComboBox,
+    QPushButton, QListWidget, QScrollArea, QFileDialog,
 )
 
 
@@ -35,11 +35,18 @@ class _CollapsibleGroupBox(QGroupBox):
         layout = self.layout()
         if layout is None:
             return
+        self._walkAndSetVisible(layout, visible)
+
+    def _walkAndSetVisible(self, layout, visible):
         for i in range(layout.count()):
             item = layout.itemAt(i)
             w = item.widget()
             if w:
                 w.setVisible(visible)
+                continue
+            sub = item.layout()
+            if sub is not None:
+                self._walkAndSetVisible(sub, visible)
 
 
 _DINOV2_MODELS = [
@@ -264,6 +271,39 @@ class ParametersTab(QWidget):
         layout.addWidget(perfGroup)
 
         # ── Saved outputs (advanced) ─────────────────────────────────────────
+        # ── NAS Mirror — collapsed by default ──────────────────────────────
+        nasGroup = _CollapsibleGroupBox('NAS Mirror', expanded=False)
+        nasLayout = QVBoxLayout()
+
+        nasHint = QLabel(
+            'Write outputs to the local outputDir during processing, then rsync '
+            'each plate to the NAS mirror after that plate completes and delete '
+            'the local copy. Phase 2 embeddings cache is also synced. Much faster '
+            'than writing directly to NAS because batched sequential transfers '
+            'beat per-file SMB writes.'
+        )
+        nasHint.setWordWrap(True)
+        nasHint.setStyleSheet('color: gray; font-size: 11px;')
+        nasLayout.addWidget(nasHint)
+
+        self.nasMirrorEnabled = QCheckBox('Mirror outputs to NAS after each plate (then delete local)')
+        self.nasMirrorEnabled.setChecked(self.state.get('nasMirrorEnabled', False))
+        nasLayout.addWidget(self.nasMirrorEnabled)
+
+        nasPathRow = QHBoxLayout()
+        nasPathRow.addWidget(QLabel('NAS mirror dir:'))
+        self.nasMirrorDir = QLineEdit()
+        self.nasMirrorDir.setText(self.state.get('nasMirrorDir', ''))
+        self.nasMirrorDir.setPlaceholderText('/mnt/bridgeslab/path/to/destination')
+        nasPathRow.addWidget(self.nasMirrorDir, stretch=1)
+        nasBrowseBtn = QPushButton('Browse…')
+        nasBrowseBtn.clicked.connect(self._browseNasMirrorDir)
+        nasPathRow.addWidget(nasBrowseBtn)
+        nasLayout.addLayout(nasPathRow)
+
+        nasGroup.setLayout(nasLayout)
+        layout.addWidget(nasGroup)
+
         outputGroup = _CollapsibleGroupBox('Saved Outputs (Advanced)', expanded=False)
         outputForm = QFormLayout()
 
@@ -334,6 +374,18 @@ class ParametersTab(QWidget):
             lambda v: self.state.set('saveMasks', v))
         self.copyRaw.toggled.connect(
             lambda v: self.state.set('copyRaw', v))
+
+        self.nasMirrorEnabled.toggled.connect(
+            lambda v: self.state.set('nasMirrorEnabled', v))
+        self.nasMirrorDir.editingFinished.connect(
+            lambda: self.state.set('nasMirrorDir', self.nasMirrorDir.text().strip()))
+
+    def _browseNasMirrorDir(self):
+        start = self.nasMirrorDir.text() or self.state.get('rootDir', '') or os.path.expanduser('~')
+        d = QFileDialog.getExistingDirectory(self, 'Select NAS mirror destination', start)
+        if d:
+            self.nasMirrorDir.setText(d)
+            self.state.set('nasMirrorDir', d)
 
     def _onBlockDiam(self, val):
         if val % 2 == 0:
@@ -441,6 +493,7 @@ class ParametersTab(QWidget):
             self.fftStride, self.downsample, self.shiftThresh, self.workers,
             self.dinov2Model, self.imageSize, self.extractCls, self.extractPatches,
             self.patchGridSize, self.extractionWellBatch, self.extractionWorkers,
+            self.nasMirrorEnabled, self.nasMirrorDir,
         ]
         for w in widgets:
             w.blockSignals(True)
@@ -468,6 +521,8 @@ class ParametersTab(QWidget):
         self.patchGridSize.setValue(self.state.get('patchGridSize', 3))
         self.extractionWellBatch.setValue(self.state.get('extractionWellBatch', 4))
         self.extractionWorkers.setValue(self.state.get('extractionWorkers', 3))
+        self.nasMirrorEnabled.setChecked(self.state.get('nasMirrorEnabled', False))
+        self.nasMirrorDir.setText(self.state.get('nasMirrorDir', ''))
 
         for w in widgets:
             w.blockSignals(False)

@@ -50,6 +50,13 @@ DEFAULTS = {
     'extractionWellBatch':  4,
     'extractionWorkers':    3,
     'extractionPrefetch':   2,
+
+    # NAS mirror: write outputs to local outputDir during processing, then
+    # rsync each plate's outputs to nasMirrorDir after that plate completes,
+    # and delete the local copy. Massively faster on NAS-backed setups because
+    # batched sequential transfers beat per-file writes on SMB.
+    'nasMirrorEnabled':     False,
+    'nasMirrorDir':         '',
 }
 
 

@@ -203,6 +203,14 @@ class ProcessingWorker(QObject):
         outputRoot = s.get('outputDir', '')
         magSetting = s.get('magnification', 'all')
 
+        nasMirror = bool(s.get('nasMirrorEnabled', False)) and bool(s.get('nasMirrorDir', '').strip())
+        if nasMirror:
+            nasMirrorDir = s['nasMirrorDir'].strip()
+            self.log.emit(f'\nNAS mirror enabled — outputs will be rsynced to {nasMirrorDir} '
+                          f'after each plate and the local copy deleted.')
+            if not self._preflightNasMirror(outputRoot, nasMirrorDir):
+                return
+
         self.log.emit('Phase 1: image processing')
         self.log.emit(f'  workers={nWorkers}, magnification={magSetting}, '
                       f'saveOverlays={s.get("saveOverlays")}, copyRaw={s.get("copyRaw")}')
@@ -334,6 +342,12 @@ class ProcessingWorker(QObject):
                 self.log.emit(f'\n  Index: {len(index)} wells, columns: {indexCols}')
                 self._saveIndex(index, outdir, plateName, resolvedPlate)
 
+                if nasMirror:
+                    nasPlateDir = self._computeNasPlateDir(
+                        outputRoot, outdir, s['nasMirrorDir'].strip(),
+                    )
+                    self._syncPlateToNas(outdir, nasPlateDir)
+
                 plateIdx += 1
 
     def _runProcessing(self, plateName, items, index, outdir,
@@ -437,6 +451,86 @@ class ProcessingWorker(QObject):
                 writer.writerow(merged[wellId])
 
         self.log.emit(f'  Index saved: {indexPath}')
+
+    def _preflightNasMirror(self, outputRoot, nasMirrorDir):
+        """Sanity checks before starting a NAS-mirror run.
+
+        Returns True if OK to proceed, False to abort (emits a log line).
+        """
+        import shutil
+        if not outputRoot or not os.path.isdir(outputRoot):
+            self.log.emit(f'  ERROR: outputDir {outputRoot!r} is not set or does not exist; '
+                          f'NAS mirror mode needs a local outputDir to stage to.')
+            return False
+        if shutil.which('rsync') is None:
+            self.log.emit('  ERROR: rsync not found on PATH; install rsync or disable NAS mirror.')
+            return False
+        if outputRoot.rstrip('/') == nasMirrorDir.rstrip('/'):
+            self.log.emit(f'  ERROR: outputDir and nasMirrorDir are the same ({outputRoot}); '
+                          f'NAS mirror mode requires a distinct local staging dir.')
+            return False
+        try:
+            os.makedirs(nasMirrorDir, exist_ok=True)
+            probe = os.path.join(nasMirrorDir, '.mtv_nas_write_probe')
+            with open(probe, 'w') as f:
+                f.write('ok')
+            os.remove(probe)
+        except Exception as e:
+            self.log.emit(f'  ERROR: NAS mirror dir {nasMirrorDir!r} not writable: {e}')
+            return False
+
+        usage = shutil.disk_usage(outputRoot)
+        freeGb = usage.free / (1024 ** 3)
+        # ~50 GB per typical 96-well plate with saveFpHalf-style dual outputs.
+        # Warn at <100 GB, abort at <20 GB (probably can't fit even one plate).
+        if freeGb < 20:
+            self.log.emit(f'  ERROR: only {freeGb:.1f} GB free at {outputRoot}; '
+                          f'need at least ~50 GB per plate. Aborting.')
+            return False
+        if freeGb < 100:
+            self.log.emit(f'  WARNING: only {freeGb:.1f} GB free at {outputRoot} '
+                          f'(typical plate ~50 GB). Per-plate mirror+delete should '
+                          f'keep up but the headroom is tight.')
+        else:
+            self.log.emit(f'  Local free space at outputDir: {freeGb:.0f} GB — plenty.')
+        return True
+
+    def _computeNasPlateDir(self, outputRoot, localPlateDir, nasMirrorDir):
+        """Compute the NAS-side path that mirrors a local plate dir."""
+        rel = os.path.relpath(localPlateDir, outputRoot)
+        return os.path.join(nasMirrorDir, rel)
+
+    def _syncPlateToNas(self, localPlateDir, nasPlateDir):
+        """rsync local plate dir → NAS, then delete the local copy on success."""
+        import shutil, subprocess
+        if not os.path.isdir(localPlateDir):
+            self.log.emit(f'  [NAS sync] skip — local plate dir missing: {localPlateDir}')
+            return False
+        os.makedirs(os.path.dirname(nasPlateDir.rstrip('/')) or nasPlateDir, exist_ok=True)
+        self.log.emit(f'  [NAS sync] {localPlateDir} → {nasPlateDir}')
+        srcArg = localPlateDir.rstrip('/') + '/'
+        dstArg = nasPlateDir.rstrip('/') + '/'
+        try:
+            result = subprocess.run(
+                ['rsync', '-a', '--info=progress2', srcArg, dstArg],
+                capture_output=True, text=True, timeout=3600,
+            )
+            if result.returncode != 0:
+                self.log.emit(f'  [NAS sync] rsync FAILED (rc={result.returncode}): '
+                              f'{result.stderr.strip()[:500]}')
+                return False
+        except subprocess.TimeoutExpired:
+            self.log.emit(f'  [NAS sync] rsync timed out (>1h) for {localPlateDir}')
+            return False
+        except Exception as e:
+            self.log.emit(f'  [NAS sync] rsync exception: {e}')
+            return False
+        try:
+            shutil.rmtree(localPlateDir)
+            self.log.emit(f'  [NAS sync] local copy deleted: {localPlateDir}')
+        except Exception as e:
+            self.log.emit(f'  [NAS sync] WARNING: rsync OK but local delete failed: {e}')
+        return True
 
 
 def _collectProcessedRows(outputRoot, logFn):
