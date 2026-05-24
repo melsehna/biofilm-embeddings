@@ -10,6 +10,7 @@ index.csv — wired in a later task.
 
 import json
 import os
+import sys
 import time
 import re
 import csv as csv_mod
@@ -188,6 +189,14 @@ class ProcessingWorker(QObject):
         self._stop = stopEvent
         self._overallDone = 0
         self._totalTasks = 1
+        # When NAS mirror is on, we run extraction per-plate as a subprocess
+        # immediately after each plate's phase 1, then keep the per-plate cache
+        # path here. After all plates done, we aggregate them into one master
+        # cache and sync that to NAS too.
+        self._perPlateCachePaths = []
+        # Set to True iff per-plate pipelined extraction ran successfully, so
+        # the chained ExtractWorker auto-chain in RunTab can skip itself.
+        self._didPerPlateExtraction = False
 
     def run(self):
         try:
@@ -343,12 +352,37 @@ class ProcessingWorker(QObject):
                 self._saveIndex(index, outdir, plateName, resolvedPlate)
 
                 if nasMirror:
+                    # Per-plate pipelined extraction:
+                    #   1. subprocess extract on this plate's wells (CUDA in
+                    #      child, parent stays fork-safe for the next plate)
+                    #   2. sync the whole plate dir (including embeddings/) → NAS
+                    #   3. delete local plate dir
+                    plateDirLocal = os.path.dirname(outdir)
+                    extractOk = self._runPerPlateExtraction(plateDirLocal, s)
+                    if extractOk:
+                        cachePath = os.path.join(plateDirLocal, 'embeddings', 'cls_cache.pt')
+                        if os.path.exists(cachePath):
+                            self._perPlateCachePaths.append(cachePath)
+                            self._didPerPlateExtraction = True
+
                     nasPlateDir = self._computeNasPlateDir(
-                        outputRoot, outdir, s['nasMirrorDir'].strip(),
+                        outputRoot, plateDirLocal, s['nasMirrorDir'].strip(),
                     )
-                    self._syncPlateToNas(outdir, nasPlateDir)
+                    self._syncPlateToNas(plateDirLocal, nasPlateDir)
+                    # After sync+delete the local cache file is gone too; update
+                    # the tracked path so aggregation reads from NAS instead.
+                    if extractOk and self._perPlateCachePaths and \
+                            self._perPlateCachePaths[-1] == cachePath:
+                        self._perPlateCachePaths[-1] = os.path.join(
+                            nasPlateDir, 'embeddings', 'cls_cache.pt',
+                        )
 
                 plateIdx += 1
+
+        # After all plates: if per-plate extraction ran, aggregate the
+        # per-plate caches into one master cls_cache.pt and sync that to NAS.
+        if nasMirror and self._didPerPlateExtraction and not self._stop.is_set():
+            self._aggregateAndSyncMaster(outputRoot, s['nasMirrorDir'].strip())
 
     def _runProcessing(self, plateName, items, index, outdir,
                        resolvedPlate, state, nWorkers):
@@ -499,6 +533,100 @@ class ProcessingWorker(QObject):
         """Compute the NAS-side path that mirrors a local plate dir."""
         rel = os.path.relpath(localPlateDir, outputRoot)
         return os.path.join(nasMirrorDir, rel)
+
+    def _runPerPlateExtraction(self, plateDirLocal, s):
+        """Run extract_one_plate as a subprocess on a single plate's wells.
+
+        Runs in a child process so CUDA stays out of the GUI parent — important
+        because subsequent plates' phase 1 ProcessPoolExecutor uses fork, and
+        fork-after-CUDA-init produces broken CUDA state in the forked workers.
+
+        Returns True on success, False otherwise.
+        """
+        import subprocess
+        # Probe nFrames from the first processed.tif in this plate.
+        # _peekFrameCount handles axis-order detection.
+        try:
+            from glob import glob
+            tifs = sorted(glob(os.path.join(plateDirLocal, 'processedImages', '*_processed.tif')))
+            if not tifs:
+                self.log.emit(f'  [per-plate extract] no _processed.tif under {plateDirLocal} — skip')
+                return False
+            nFrames = _peekFrameCount(tifs[0])
+        except Exception as e:
+            self.log.emit(f'  [per-plate extract] failed to probe nFrames: {e}')
+            return False
+
+        self.log.emit(f'\n  [per-plate extract] launching subprocess for {os.path.basename(plateDirLocal)}…')
+        cmd = [
+            sys.executable, '-m', 'multiWellAnalysis.embeddings.extract_one_plate',
+            '--plate-dir', plateDirLocal,
+            '--model',       str(s.get('dinov2Model', 'facebook/dinov2-base')),
+            '--image-size',  str(s.get('imageSize', 518)),
+            '--n-frames',    str(nFrames),
+            '--grid-size',   str(s.get('patchGridSize', 3)),
+            '--well-batch',  str(s.get('extractionWellBatch', 4)),
+            '--workers',     str(s.get('extractionWorkers', 3)),
+            '--prefetch',    str(s.get('extractionPrefetch', 2)),
+        ]
+        if not s.get('extractCls', True):
+            cmd.append('--no-extract-cls')
+        if not s.get('extractPatches', True):
+            cmd.append('--no-extract-patches')
+
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1,
+            )
+            for line in proc.stdout:
+                self.log.emit(f'    [extract] {line.rstrip()}')
+                if self._stop.is_set():
+                    proc.terminate()
+                    proc.wait(timeout=10)
+                    return False
+            rc = proc.wait()
+        except Exception as e:
+            self.log.emit(f'  [per-plate extract] subprocess exception: {e}')
+            return False
+
+        if rc != 0:
+            self.log.emit(f'  [per-plate extract] subprocess exited rc={rc}')
+            return False
+        self.log.emit(f'  [per-plate extract] done for {os.path.basename(plateDirLocal)}')
+        return True
+
+    def _aggregateAndSyncMaster(self, outputRoot, nasMirrorDir):
+        """After per-plate extractions, concat per-plate caches into the master
+        cls_cache.pt at outputRoot/embeddings/, then sync that to NAS and
+        delete local."""
+        import shutil
+        from ...embeddings.extractor import aggregatePerPlateCaches
+
+        masterDir = os.path.join(outputRoot, 'embeddings')
+        masterPath = os.path.join(masterDir, 'cls_cache.pt')
+        nasMasterDir = os.path.join(nasMirrorDir, 'embeddings')
+
+        # The tracked cache paths may already point at NAS (because per-plate
+        # sync moved them). Either way, load them, concat, write master locally
+        # first (fast), then rsync the master to NAS.
+        self.log.emit(f'\n[aggregate] consolidating {len(self._perPlateCachePaths)} '
+                      f'per-plate caches into master cls_cache.pt')
+        try:
+            aggregatePerPlateCaches(
+                self._perPlateCachePaths, masterPath,
+                progressFn=self.log.emit,
+            )
+        except Exception as e:
+            self.log.emit(f'[aggregate] FAILED: {e}\n{traceback.format_exc()}')
+            return
+
+        self.log.emit(f'[aggregate] syncing master cache to NAS: {nasMasterDir}')
+        if self._syncPlateToNas(masterDir, nasMasterDir):
+            self.log.emit('[aggregate] master cache mirrored; local copy deleted.')
+        else:
+            self.log.emit('[aggregate] WARNING: master cache local copy NOT deleted (rsync failed)')
 
     def _syncPlateToNas(self, localPlateDir, nasPlateDir):
         """rsync local plate dir → NAS, then delete the local copy on success."""
@@ -947,6 +1075,13 @@ class RunTab(QWidget):
         self.stopBtn.setEnabled(False)
         stopped = self._stopEvent.is_set()
         errored = getattr(self, '_phase1Errored', False)
+        # Capture per-plate extraction flag from the worker before we tear it
+        # down. If per-plate mode ran, the chain checkbox should be a no-op
+        # (extraction already happened inline per-plate).
+        didPerPlateExtraction = bool(
+            getattr(self._worker, '_didPerPlateExtraction', False)
+            if self._worker is not None else False
+        )
         if stopped:
             self.logText.append('\nStopped by user.')
             self.statusLabel.setText('Stopped')
@@ -965,7 +1100,13 @@ class RunTab(QWidget):
             self._worker = None
 
         if not stopped and not errored and self.chainExtractBox.isChecked():
-            self.logText.append('\n' + '=' * 60)
-            self.logText.append('Phase 1 finished — auto-starting phase 2.')
-            self.logText.append('=' * 60)
-            self._extract(clearLog=False)
+            if didPerPlateExtraction:
+                self.logText.append('\n' + '=' * 60)
+                self.logText.append('Per-plate extraction already ran inline (NAS mirror mode); '
+                                    'skipping the auto-chain to phase 2.')
+                self.logText.append('=' * 60)
+            else:
+                self.logText.append('\n' + '=' * 60)
+                self.logText.append('Phase 1 finished — auto-starting phase 2.')
+                self.logText.append('=' * 60)
+                self._extract(clearLog=False)

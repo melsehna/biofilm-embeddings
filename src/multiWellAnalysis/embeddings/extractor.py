@@ -200,6 +200,65 @@ def _consolidate(batchDir, totalBatches, extractCls, extractPatches):
     return out
 
 
+def aggregatePerPlateCaches(
+    perPlateCachePaths,
+    outCachePath,
+    progressFn=print,
+):
+    """Concatenate per-plate cls_cache.pt files into one master cache.
+
+    Used by per-plate pipelined mode (when NAS mirror is enabled):
+    extract_one_plate writes one cache per plate; after all plates done,
+    this stitches them into the master <outputRoot>/embeddings/cls_cache.pt
+    that downstream analysis expects.
+
+    perPlateCachePaths : list of paths to per-plate cls_cache.pt files
+    outCachePath : where to write the consolidated cache
+    """
+    if not perPlateCachePaths:
+        raise ValueError('no per-plate caches to aggregate')
+
+    allCls, allPatches, allWells, allPlates = [], [], [], []
+    indexDfs = []
+    gridSize = None
+    modelName = None
+    for path in perPlateCachePaths:
+        progressFn(f'  loading {path}')
+        ck = torch.load(path, map_location='cpu', weights_only=False)
+        if 'cls' in ck:
+            allCls.append(ck['cls'])
+        if 'patches' in ck:
+            allPatches.append(ck['patches'])
+        allWells.extend(ck.get('wells', []))
+        allPlates.extend(ck.get('plates', []))
+        if 'index' in ck:
+            indexDfs.append(ck['index'])
+        gridSize = ck.get('gridSize', gridSize)
+        modelName = ck.get('model', modelName)
+
+    master = {
+        'wells':    allWells,
+        'plates':   allPlates,
+        'gridSize': gridSize,
+        'model':    modelName,
+    }
+    if allCls:
+        master['cls'] = torch.cat(allCls)
+    if allPatches:
+        master['patches'] = torch.cat(allPatches)
+    if indexDfs:
+        master['index'] = pd.concat(indexDfs, ignore_index=True)
+
+    os.makedirs(os.path.dirname(outCachePath), exist_ok=True)
+    torch.save(master, outCachePath)
+    progressFn(f'  master cache written: {outCachePath}')
+    if 'cls' in master:
+        progressFn(f'    cls shape:     {tuple(master["cls"].shape)}')
+    if 'patches' in master:
+        progressFn(f'    patches shape: {tuple(master["patches"].shape)}')
+    return outCachePath
+
+
 def extractAll(
     rows,
     outRoot,
