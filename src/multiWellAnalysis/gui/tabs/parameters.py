@@ -276,11 +276,16 @@ class ParametersTab(QWidget):
         nasLayout = QVBoxLayout()
 
         nasHint = QLabel(
-            'Write outputs to the local outputDir during processing, then rsync '
-            'each plate to the NAS mirror after that plate completes and delete '
-            'the local copy. Phase 2 embeddings cache is also synced. Much faster '
-            'than writing directly to NAS because batched sequential transfers '
-            'beat per-file SMB writes.'
+            'Stage outputs to a local disk during processing, then rsync each '
+            'plate to the NAS mirror after that plate completes and delete the '
+            'local copy. Phase 2 runs per-plate as a subprocess and the embeddings '
+            'cache is also synced. Much faster than writing directly to NAS '
+            'because batched sequential transfers beat per-file SMB writes.'
+            '\n\n'
+            'Staging location: if outputDir is empty or on the same network mount '
+            'as the NAS destination, a local staging dir is auto-created at '
+            '~/mtv-staging-<timestamp>/ and cleaned up at the end of the run. '
+            'Otherwise outputDir is used as-is.'
         )
         nasHint.setWordWrap(True)
         nasHint.setStyleSheet('color: gray; font-size: 11px;')

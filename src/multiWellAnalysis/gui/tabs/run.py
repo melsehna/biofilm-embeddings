@@ -213,12 +213,17 @@ class ProcessingWorker(QObject):
         magSetting = s.get('magnification', 'all')
 
         nasMirror = bool(s.get('nasMirrorEnabled', False)) and bool(s.get('nasMirrorDir', '').strip())
+        self._stagingAutoCreated = False
         if nasMirror:
             nasMirrorDir = s['nasMirrorDir'].strip()
             self.log.emit(f'\nNAS mirror enabled — outputs will be rsynced to {nasMirrorDir} '
                           f'after each plate and the local copy deleted.')
             if not self._preflightNasMirror(outputRoot, nasMirrorDir):
                 return
+            outputRoot, self._stagingAutoCreated = self._resolveLocalStagingDir(
+                outputRoot, nasMirrorDir,
+            )
+            self.log.emit(f'  [NAS mirror] local staging dir: {outputRoot}')
 
         self.log.emit('Phase 1: image processing')
         self.log.emit(f'  workers={nWorkers}, magnification={magSetting}, '
@@ -384,6 +389,17 @@ class ProcessingWorker(QObject):
         if nasMirror and self._didPerPlateExtraction and not self._stop.is_set():
             self._aggregateAndSyncMaster(outputRoot, s['nasMirrorDir'].strip())
 
+        # If staging was auto-created under home, tear it down entirely now
+        # that everything has been synced to NAS.
+        if nasMirror and self._stagingAutoCreated:
+            import shutil
+            try:
+                shutil.rmtree(outputRoot)
+                self.log.emit(f'  [NAS mirror] cleaned up auto-staging dir: {outputRoot}')
+            except Exception as e:
+                self.log.emit(f'  [NAS mirror] WARNING: failed to clean auto-staging dir '
+                              f'{outputRoot}: {e}')
+
     def _runProcessing(self, plateName, items, index, outdir,
                        resolvedPlate, state, nWorkers):
         total = len(items)
@@ -490,16 +506,14 @@ class ProcessingWorker(QObject):
         """Sanity checks before starting a NAS-mirror run.
 
         Returns True if OK to proceed, False to abort (emits a log line).
+        outputRoot may be empty here — _resolveLocalStagingDir will
+        auto-create one if so.
         """
         import shutil
-        if not outputRoot or not os.path.isdir(outputRoot):
-            self.log.emit(f'  ERROR: outputDir {outputRoot!r} is not set or does not exist; '
-                          f'NAS mirror mode needs a local outputDir to stage to.')
-            return False
         if shutil.which('rsync') is None:
             self.log.emit('  ERROR: rsync not found on PATH; install rsync or disable NAS mirror.')
             return False
-        if outputRoot.rstrip('/') == nasMirrorDir.rstrip('/'):
+        if outputRoot and outputRoot.rstrip('/') == nasMirrorDir.rstrip('/'):
             self.log.emit(f'  ERROR: outputDir and nasMirrorDir are the same ({outputRoot}); '
                           f'NAS mirror mode requires a distinct local staging dir.')
             return False
@@ -512,22 +526,46 @@ class ProcessingWorker(QObject):
         except Exception as e:
             self.log.emit(f'  ERROR: NAS mirror dir {nasMirrorDir!r} not writable: {e}')
             return False
-
-        usage = shutil.disk_usage(outputRoot)
-        freeGb = usage.free / (1024 ** 3)
-        # ~50 GB per typical 96-well plate with saveFpHalf-style dual outputs.
-        # Warn at <100 GB, abort at <20 GB (probably can't fit even one plate).
-        if freeGb < 20:
-            self.log.emit(f'  ERROR: only {freeGb:.1f} GB free at {outputRoot}; '
-                          f'need at least ~50 GB per plate. Aborting.')
-            return False
-        if freeGb < 100:
-            self.log.emit(f'  WARNING: only {freeGb:.1f} GB free at {outputRoot} '
-                          f'(typical plate ~50 GB). Per-plate mirror+delete should '
-                          f'keep up but the headroom is tight.')
-        else:
-            self.log.emit(f'  Local free space at outputDir: {freeGb:.0f} GB — plenty.')
         return True
+
+    def _onSameMount(self, a, b):
+        """Are paths a and b on the same filesystem mount?"""
+        try:
+            return os.stat(a).st_dev == os.stat(b).st_dev
+        except Exception:
+            return False
+
+    def _resolveLocalStagingDir(self, userOutputRoot, nasMirrorDir):
+        """Decide what local path to use as the NAS-mirror staging area.
+
+        If userOutputRoot is set AND exists AND is on a different mount from
+        nasMirrorDir, use it as-is. Otherwise auto-create a fresh dir under
+        $HOME.
+
+        Returns (path, autoCreatedBool). autoCreatedBool=True means caller
+        should rmtree the path at the end of the run.
+        """
+        import datetime, shutil
+        if userOutputRoot and os.path.isdir(userOutputRoot):
+            if not self._onSameMount(userOutputRoot, nasMirrorDir):
+                freeGb = shutil.disk_usage(userOutputRoot).free / (1024 ** 3)
+                if freeGb < 20:
+                    self.log.emit(f'  [NAS mirror] WARNING: only {freeGb:.1f} GB free '
+                                  f'at {userOutputRoot}; per-plate sync should keep up '
+                                  f'but headroom is tight.')
+                return userOutputRoot, False
+            self.log.emit(f'  [NAS mirror] outputDir {userOutputRoot} is on the same mount '
+                          f'as nasMirrorDir — auto-creating local staging dir under home.')
+        stamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        staging = os.path.expanduser(f'~/mtv-staging-{stamp}')
+        os.makedirs(staging, exist_ok=True)
+        freeGb = shutil.disk_usage(staging).free / (1024 ** 3)
+        if freeGb < 20:
+            self.log.emit(f'  [NAS mirror] WARNING: only {freeGb:.1f} GB free at '
+                          f'{staging}; per-plate sync may not keep up.')
+        else:
+            self.log.emit(f'  [NAS mirror] auto-created staging dir has {freeGb:.0f} GB free.')
+        return staging, True
 
     def _computeNasPlateDir(self, outputRoot, localPlateDir, nasMirrorDir):
         """Compute the NAS-side path that mirrors a local plate dir."""
