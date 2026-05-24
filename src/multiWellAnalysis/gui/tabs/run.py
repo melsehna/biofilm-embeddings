@@ -441,9 +441,18 @@ class ProcessingWorker(QObject):
 
 def _collectProcessedRows(outputRoot, logFn):
     """Walk outputRoot for every plate's index.csv, return rows with an
-    existing `processed` file."""
+    existing `processed` file.
+
+    Prefers the fixed-fpMean rendering (`_processed_fpHalf.tif`) over the
+    adaptive `_processed.tif` when both are present on disk. ImageNet
+    normalization absorbs much of the additive offset that distinguishes
+    them, but a uniform fixed offset is strictly better for cross-batch
+    embedding consistency — see CLAUDE.md "fpMean policy".
+    """
     rows = []
     plateCount = 0
+    fpHalfCount = 0
+    adaptiveCount = 0
     for root, dirs, files in os.walk(outputRoot):
         # don't descend into the embeddings cache dir
         dirs[:] = [d for d in dirs if d.lower() != 'embeddings']
@@ -461,10 +470,21 @@ def _collectProcessedRows(outputRoot, logFn):
         before = len(df)
         df = df[df['processed'].apply(lambda p: bool(p) and os.path.exists(p))]
         kept = len(df)
+
+        for _, row in df.iterrows():
+            adaptivePath = row['processed']
+            fpHalfPath = adaptivePath.replace('_processed.tif', '_processed_fpHalf.tif')
+            if fpHalfPath != adaptivePath and os.path.exists(fpHalfPath):
+                row['processed'] = fpHalfPath
+                fpHalfCount += 1
+            else:
+                adaptiveCount += 1
+            rows.append(row.to_dict())
+
         logFn(f'  {indexPath}: {kept}/{before} wells with processed.tif')
         plateCount += 1
-        rows.extend(df.to_dict(orient='records'))
-    logFn(f'  total: {len(rows)} wells across {plateCount} plate index files')
+    logFn(f'  total: {len(rows)} wells across {plateCount} plate index files '
+          f'({fpHalfCount} fpHalf, {adaptiveCount} adaptive)')
     return rows
 
 
