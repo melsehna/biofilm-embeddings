@@ -336,7 +336,10 @@ class ParametersTab(QWidget):
         outputGroup.setLayout(outputForm)
         layout.addWidget(outputGroup)
 
-        layout.addStretch()
+        # NO trailing addStretch() — with a QScrollArea wrapping this layout,
+        # an end stretch can let groups compress instead of triggering a
+        # scrollbar. Without it, the inner widget claims its natural height
+        # and the scrollbar appears as expected when content overflows.
 
     def _connectSignals(self):
         self.saveOverlays.toggled.connect(
