@@ -51,7 +51,7 @@ def _fmtTime(seconds):
 _paramKeys = [
     'blockDiam', 'fixedThresh', 'dustCorrection',
     'shiftThresh', 'fftStride', 'downsample',
-    'magnification', 'magParams', 'copyRaw',
+    'magnification', 'magParams',
 ]
 
 _runParamsFile = 'run_params.json'
@@ -76,6 +76,23 @@ def _loadRunParams(outdir):
             return json.load(f)
     except (json.JSONDecodeError, OSError):
         return None
+
+
+def _paramsMatch(saved, current):
+    """Lenient comparison: saved having extra keys we don't track is OK.
+
+    Strict `saved == current` would break cross-GUI resume because the two
+    GUIs historically wrote slightly different key sets. We only care that
+    every key in `current` exists in `saved` with the same value. Extra keys
+    in `saved` (e.g. left over from old runs that tracked `copyRaw`) are
+    ignored.
+    """
+    if not isinstance(saved, dict):
+        return False
+    for k, v in current.items():
+        if k not in saved or saved[k] != v:
+            return False
+    return True
 
 
 def _wellAlreadyProcessed(outdir, wellId):
@@ -276,7 +293,7 @@ class ProcessingWorker(QObject):
 
                 # per-plate resume: same params + existing _processed.tif → skip
                 saved = _loadRunParams(outdir)
-                resume = saved is not None and saved == runParams
+                resume = _paramsMatch(saved, runParams)
                 _saveRunParams(outdir, runParams)
 
                 wellItems = list(wells.items())
