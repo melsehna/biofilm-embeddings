@@ -252,6 +252,7 @@ class ProcessingWorker(QObject):
 
         runParams = _extractRunParams(s)
         plateIdx = 0
+        diskAbort = False
 
         for platePath in s['plates']:
             expanded = _resolveAllTifDirs(platePath, maxDepth=2)
@@ -349,6 +350,18 @@ class ProcessingWorker(QObject):
                         self.log.emit(f'  Resuming: skipping {len(skipped)} already-processed wells')
                     wellItems = remaining
 
+                # Disk gate: before writing anything, ensure the filesystem
+                # holding outdir has room for at least this plate's output (the
+                # processed/registered float32 stacks dominate; the embedding
+                # cache is a small addition). In NAS-mirror mode output
+                # accumulates to a full plate before the per-plate delete frees
+                # it, so a plate that won't fit would ENOSPC mid-write and leave
+                # corrupt partial TIFFs. wellItems is resume-filtered, so a
+                # fully-resumed plate (nothing to write) passes trivially.
+                if not self._ensureDiskForPlate(outdir, wellItems, plateName):
+                    diskAbort = True
+                    break
+
                 self._totalTasks += len(wellItems)
                 self.overallProgress.emit(
                     self._overallDone, self._totalTasks,
@@ -400,6 +413,9 @@ class ProcessingWorker(QObject):
                         )
 
                 plateIdx += 1
+
+            if diskAbort:
+                break
 
         # After all plates: if per-plate extraction ran, aggregate the
         # per-plate caches into one master cls_cache.pt and sync that to NAS.
@@ -516,6 +532,82 @@ class ProcessingWorker(QObject):
                 writer.writerow(merged[wellId])
 
         self.log.emit(f'  Index saved: {indexPath}')
+
+    def _estimatePlateOutputBytes(self, wellItems):
+        """Estimate how many bytes processing one plate will write.
+
+        Output is dominated by the two float32 stacks per well
+        (`_registered_raw.tif` + `_processed.tif`), each ~2x the uint16 raw
+        input (4 bytes vs 2) → ~4x raw for the pair; `_masks.npz` /
+        `_overlay.mp4` and the per-frame embedding cache add a smaller tail.
+        We use a conservative 5x-raw all-in factor (over-estimating is the safe
+        direction for a disk gate) and scale a sampled per-well size by the
+        well count.
+
+        Sampling a few wells (rather than stat-ing every frame of every well)
+        keeps this to ~tens of stat calls on NFS instead of thousands; wells on
+        a plate share dimensions and frame counts, so the max of a small sample
+        is a good per-well figure. Returns 0 if nothing could be measured,
+        which the caller treats as 'unknown — don't gate'.
+        """
+        OUTPUT_FACTOR = 5.0
+        sampleBytes = []
+        for _wellId, wellFiles in wellItems:
+            paths = [wellFiles] if isinstance(wellFiles, str) else list(wellFiles)
+            try:
+                wb = sum(os.path.getsize(p) for p in paths)
+            except OSError:
+                continue
+            if wb > 0:
+                sampleBytes.append(wb)
+            if len(sampleBytes) >= 3:
+                break
+        if not sampleBytes:
+            return 0
+        perWell = max(sampleBytes)
+        return int(perWell * OUTPUT_FACTOR * len(wellItems))
+
+    def _ensureDiskForPlate(self, outdir, wellItems, plateName):
+        """Return True if the filesystem holding `outdir` can hold at least
+        this plate's worth of output (plus a reserve), else False to abort.
+
+        Logs its decision. Fails open (returns True with a warning) when the
+        plate size or free space can't be determined — the gate is a guard,
+        not a hard dependency of the run.
+        """
+        import shutil
+        if not wellItems:
+            return True  # fully resumed — nothing left to write
+        estBytes = self._estimatePlateOutputBytes(wellItems)
+        try:
+            freeBytes = shutil.disk_usage(outdir).free
+        except OSError as e:
+            self.log.emit(f'  [disk] WARNING: could not stat free space at '
+                          f'{outdir}: {e} — proceeding without a disk gate.')
+            return True
+        GB = 1024 ** 3
+        if estBytes <= 0:
+            self.log.emit(f'  [disk] WARNING: could not estimate plate output '
+                          f'size — proceeding without a disk gate '
+                          f'({freeBytes / GB:.1f} GB free).')
+            return True
+        # Keep a reserve so we never fill the disk to the brim even if the
+        # estimate is exactly right: the larger of 15% of the plate or 5 GB.
+        reserve = max(int(estBytes * 0.15), 5 * GB)
+        required = estBytes + reserve
+        self.log.emit(f'  [disk] plate ~{estBytes / GB:.1f} GB est; '
+                      f'{freeBytes / GB:.1f} GB free '
+                      f'(need ~{required / GB:.1f} GB incl. reserve)')
+        if freeBytes < required:
+            self.log.emit(
+                f'  [disk] ERROR: not enough space for plate {plateName!r}: '
+                f'need ~{required / GB:.1f} GB, have {freeBytes / GB:.1f} GB. '
+                f'Aborting before this plate to avoid a mid-write ENOSPC that '
+                f'would leave corrupt partial TIFFs. Free up disk (or enable '
+                f'NAS mirror / point outputDir at a larger disk) and resume — '
+                f'already-finished plates are kept.')
+            return False
+        return True
 
     def _preflightNasMirror(self, outputRoot, nasMirrorDir):
         """Sanity checks before starting a NAS-mirror run.
