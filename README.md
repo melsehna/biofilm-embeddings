@@ -4,19 +4,27 @@ PySide6 GUI for biofilm phenotyping with frozen DINOv2 ViT embeddings.
 
 Two phases, one window:
 
-1. **Image processing.** Raw Cytation TIFFs become registered, segmented `_processed.tif` stacks. Lifted from `biofilm-processing` / `phenotypr`.
+1. **Image processing.** Raw Cytation TIFFs become registered, segmented `_processed.tif` stacks. The processing engine is **not** a copy — it's `biofilm-processing` itself, vendored as a pinned git submodule (`external/biofilm-processing` @ v0.5.0) so the render is byte-for-byte identical and never drifts under the embeddings.
 2. **DINOv2 ViT embedding extraction.** Frozen DINOv2-B/14 runs over every processed well, producing per-frame CLS and pooled patch tokens for downstream trajectory analysis (fPCA, UMAP, path signatures).
 
 The two phases are separate buttons. Process now, extract later. Re-extract with a different model without reprocessing.
 
 ## Install
 
-`pip install -e .` pulls everything (PySide6, opencv, scikit-image, tifffile, transformers, **torch>=2.7**) from PyPI. Python 3.10+ recommended.
+The processing engine (`biofilm-processing`) is vendored as a pinned git submodule and is
+not on PyPI, so install it editable **first**, then this package (which pulls PySide6,
+opencv, scikit-image, tifffile, transformers, **torch>=2.7** from PyPI). Python 3.10+ recommended.
 
 ```bash
 cd ~/microTyper-Vision
+git submodule update --init             # fetch external/biofilm-processing @ v0.5.0
+pip install -e external/biofilm-processing
 pip install -e .
 ```
+
+The submodule is pinned (`biofilm-processing==0.5.0`) on purpose: the render is frozen at
+that tag so embeddings stay comparable across batches. To upgrade deliberately, advance the
+submodule to a newer tag and bump the `==` pin in `pyproject.toml` in the same commit.
 
 ### GPU compatibility
 
@@ -89,4 +97,10 @@ Re-run the installer after converting. To remove later, delete `microtyper-visio
 
 ## Project context
 
-This repo bundles a copied subset of `~/biofilm-processing` (the per-well processing core only, no colony tracking, whole-image, or intensity feature extraction) with the DINOv2 + dataset code originally prototyped in `~/embeddings/`.
+This repo layers the DINOv2 + dataset code (originally prototyped in `~/embeddings/`) on top
+of `~/biofilm-processing`, which it imports directly via a pinned git submodule
+(`external/biofilm-processing` @ v0.5.0) rather than copying. Processing is therefore a single
+source of truth: `microtyper_vision` ships only the GUI + embeddings layer and calls
+`multiWellAnalysis.processing` from the submodule, so the `_processed.tif` render can never
+diverge from upstream. Colony tracking, whole-image, and intensity feature extraction live in
+`biofilm-processing` and are out of scope here.

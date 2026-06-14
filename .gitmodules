@@ -1,0 +1,3 @@
+[submodule "external/biofilm-processing"]
+	path = external/biofilm-processing
+	url = git@github.com:melsehna/biofilm-processing.git

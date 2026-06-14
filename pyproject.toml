@@ -11,7 +11,12 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "biofilm-processing>=0.5.0",
+    # Pinned (==) on purpose, not >=: the processing engine is vendored as a git
+    # submodule at external/biofilm-processing (tag v0.5.0) and installed editable
+    # from there. Pinning prevents silent version-drift in the render, which would
+    # reintroduce batch effects in the DINOv2 embeddings. Bump deliberately:
+    # advance the submodule to a new tag, then bump this pin in the same commit.
+    "biofilm-processing==0.5.0",
     "numpy",
     "scipy",
     "scikit-image",
