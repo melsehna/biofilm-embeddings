@@ -16,10 +16,12 @@ not on PyPI, so install it editable **first**, then this package (which pulls Py
 opencv, scikit-image, tifffile, transformers, **torch>=2.7** from PyPI). Python 3.10+ recommended.
 
 ```bash
-cd ~/biofilm-embeddings
-git submodule update --init             # fetch external/biofilm-processing @ v0.5.0
-pip install -e external/biofilm-processing
-pip install -e .
+# Clone WITH the pinned processing submodule:
+git clone --recurse-submodules git@github.com:melsehna/biofilm-embeddings.git
+cd biofilm-embeddings
+# (already cloned without --recurse-submodules? run: git submodule update --init)
+pip install -e external/biofilm-processing   # the pinned engine, first
+pip install -e .                             # then this package
 ```
 
 The submodule is pinned (`biofilm-processing==0.5.0`) on purpose: the render is frozen at
