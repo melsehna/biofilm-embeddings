@@ -6,8 +6,8 @@ in a subprocess keeps CUDA out of the GUI parent process, which is important
 because phase 1's ProcessPoolExecutor uses fork — and fork-after-CUDA-init
 leaves forked workers with broken CUDA state.
 
-Reads <plate_dir>/processedImages/index.csv, prefers _processed_fpHalf.tif
-over _processed.tif (matches _collectProcessedRows behavior), and writes
+Reads <plate_dir>/processedImages/index.csv and the `_processed.tif` it points
+to (the single fixed-fpMean render in biofilm-processing >= v0.5.0), and writes
 the resulting cache to <plate_dir>/embeddings/cls_cache.pt.
 
 Exit codes: 0 = success, 2 = no usable wells found, anything else = failure.
@@ -21,8 +21,10 @@ import sys
 def _collectPlateRows(plateDir):
     """Walk a single plate's processedImages dir for its index.csv.
 
-    Returns a list of row dicts ready to hand to extractAll, with the
-    'processed' path swapped to _processed_fpHalf.tif when that file exists.
+    Returns row dicts for extractAll. 'processed' = `_processed.tif`, which is the
+    single fixed-fpMean render (biofilm-processing >= v0.5.0). The old
+    `_processed_fpHalf.tif` swap is gone — that file no longer exists and
+    `_processed.tif` is no longer the adaptive render.
     """
     import pandas as pd
 
@@ -41,20 +43,8 @@ def _collectPlateRows(plateDir):
         raise ValueError(f'{indexPath} has no `processed` column')
     df = df[df['processed'].apply(lambda p: bool(p) and os.path.exists(p))]
 
-    rows = []
-    fpHalfCount = 0
-    adaptiveCount = 0
-    for _, row in df.iterrows():
-        adaptivePath = row['processed']
-        fpHalfPath = adaptivePath.replace('_processed.tif', '_processed_fpHalf.tif')
-        if fpHalfPath != adaptivePath and os.path.exists(fpHalfPath):
-            row['processed'] = fpHalfPath
-            fpHalfCount += 1
-        else:
-            adaptiveCount += 1
-        rows.append(row.to_dict())
-    print(f'  plate {os.path.basename(plateDir)}: {len(rows)} wells '
-          f'({fpHalfCount} fpHalf, {adaptiveCount} adaptive)', flush=True)
+    rows = [row.to_dict() for _, row in df.iterrows()]
+    print(f'  plate {os.path.basename(plateDir)}: {len(rows)} wells', flush=True)
     return rows
 
 
