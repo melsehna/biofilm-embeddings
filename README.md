@@ -12,21 +12,43 @@ The two phases are separate buttons. Process now, extract later. Re-extract with
 ## Install
 
 The processing engine (`biofilm-processing`) is vendored as a pinned git submodule and is
-not on PyPI, so install it editable **first**, then this package (which pulls PySide6,
-opencv, scikit-image, tifffile, transformers, **torch>=2.7** from PyPI). Python 3.10+ recommended.
+**not on PyPI**, so it must be fetched and installed editable **before** this package
+(which pulls PySide6, opencv, scikit-image, tifffile, transformers, **torch>=2.7** from
+PyPI). Python 3.10+ recommended.
+
+**One command** (handles the submodule + install order for you):
 
 ```bash
-# Clone WITH the pinned processing submodule:
 git clone --recurse-submodules git@github.com:melsehna/biofilm-embeddings.git
 cd biofilm-embeddings
-# (already cloned without --recurse-submodules? run: git submodule update --init)
-pip install -e external/biofilm-processing   # the pinned engine, first
+bash scripts/setup.sh
+```
+
+Or the same steps by hand (the order matters):
+
+```bash
+git clone --recurse-submodules git@github.com:melsehna/biofilm-embeddings.git
+cd biofilm-embeddings
+git submodule update --init --recursive      # populate external/biofilm-processing @ v0.5.0
+pip install -e external/biofilm-processing   # the pinned engine, FIRST
 pip install -e .                             # then this package
 ```
 
 The submodule is pinned (`biofilm-processing==0.5.0`) on purpose: the render is frozen at
 that tag so embeddings stay comparable across batches. To upgrade deliberately, advance the
 submodule to a newer tag and bump the `==` pin in `pyproject.toml` in the same commit.
+
+### Install troubleshooting
+
+- **`ERROR: No matching distribution found for biofilm-processing==0.5.0`** — you ran
+  `pip install -e .` before installing the engine. `biofilm-processing` isn't on PyPI; run
+  `bash scripts/setup.sh` (or `pip install -e external/biofilm-processing` first).
+- **`external/biofilm-processing does not appear to be a Python project`** — the submodule
+  is empty because the repo was cloned/pulled without submodules. Fix:
+  `git submodule update --init --recursive`, then re-run the install.
+- **Cloned without `--recurse-submodules` (e.g. via `git pull` on an existing checkout)?**
+  Just run `git submodule update --init --recursive` once. Do **not** `git clone` the
+  processing repo into the working dir by hand — it belongs only at `external/biofilm-processing`.
 
 ### GPU compatibility
 
