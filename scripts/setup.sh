@@ -10,6 +10,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 echo "==> Fetching the pinned processing submodule (external/biofilm-processing)…"
+# Sync first so a stale local URL (e.g. an old SSH remote) is replaced by the
+# HTTPS URL pinned in .gitmodules before we try to fetch.
+git submodule sync --recursive
 git submodule update --init --recursive
 
 if [ ! -f external/biofilm-processing/pyproject.toml ]; then
