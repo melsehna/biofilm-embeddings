@@ -23,7 +23,7 @@ DEFAULTS = {
     'blockDiam':        101,
     'fixedThresh':      0.04,
     'shiftThresh':      50,
-    'fftStride':        6,
+    'fftStride':        1,
     'downsample':       4,
     'dustCorrection':   True,
     'saveRegistered':   True,

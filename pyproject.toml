@@ -11,6 +11,7 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
+    "biofilm-processing>=0.5.0",
     "numpy",
     "scipy",
     "scikit-image",
@@ -45,4 +46,4 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [project.scripts]
-mtv-gui = "multiWellAnalysis.gui.app:run"
+mtv-gui = "microtyper_vision.gui.app:run"

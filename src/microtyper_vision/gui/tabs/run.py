@@ -146,7 +146,7 @@ def _processOneWell(platePath, outdir, wellId, wellFiles, params):
             outdir=plateOutdir,
             filename=wellId,
             imageRecords=None,
-            fftStride=params.get('fftStride', 6),
+            fftStride=params.get('fftStride', 1),
             downsample=params.get('downsample', 4),
             skipOverlay=not params.get('saveOverlays', True),
             workers=1,
@@ -471,7 +471,7 @@ class ProcessingWorker(QObject):
             'fixedThresh': state['fixedThresh'],
             'dustCorrection': state['dustCorrection'],
             'shiftThresh': state['shiftThresh'],
-            'fftStride': state.get('fftStride', 6),
+            'fftStride': state.get('fftStride', 1),
             'downsample': state.get('downsample', 4),
             'saveOverlays': state.get('saveOverlays', True),
         }
@@ -612,7 +612,7 @@ class ProcessingWorker(QObject):
 
         self.log.emit(f'\n  [per-plate extract] launching subprocess for {os.path.basename(plateDirLocal)}…')
         cmd = [
-            sys.executable, '-m', 'multiWellAnalysis.embeddings.extract_one_plate',
+            sys.executable, '-m', 'microtyper_vision.embeddings.extract_one_plate',
             '--plate-dir', plateDirLocal,
             '--model',       str(s.get('dinov2Model', 'facebook/dinov2-base')),
             '--image-size',  str(s.get('imageSize', 518)),

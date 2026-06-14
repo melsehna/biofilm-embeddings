@@ -299,7 +299,7 @@ class TestWellTab(QWidget):
         def _work():
             try:
                 from multiWellAnalysis.processing.analysis_main import timelapseProcessing
-                from multiWellAnalysis.embeddings.extractor import extractAll
+                from microtyper_vision.embeddings.extractor import extractAll
 
                 if stop.is_set():
                     self._runFinished.emit(None)
@@ -352,7 +352,7 @@ class TestWellTab(QWidget):
                         outdir=tmpdir,
                         filename=wellId,
                         imageRecords=None,
-                        fftStride=s.get('fftStride', 6),
+                        fftStride=s.get('fftStride', 1),
                         downsample=s.get('downsample', 4),
                         skipOverlay=True,
                         workers=1,
