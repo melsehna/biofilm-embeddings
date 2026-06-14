@@ -299,7 +299,7 @@ class TestWellTab(QWidget):
         def _work():
             try:
                 from multiWellAnalysis.processing.analysis_main import timelapseProcessing
-                from microtyper_vision.embeddings.extractor import extractAll
+                from biofilm_embeddings.embeddings.extractor import extractAll
 
                 if stop.is_set():
                     self._runFinished.emit(None)

@@ -78,7 +78,7 @@ def main(argv=None):
 
     # Import torch + extractor lazily so --help is fast and so CUDA only
     # initializes inside this subprocess.
-    from microtyper_vision.embeddings.extractor import extractAll
+    from biofilm_embeddings.embeddings.extractor import extractAll
 
     def _log(msg):
         print(msg, flush=True)

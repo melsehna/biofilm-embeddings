@@ -626,7 +626,7 @@ class ProcessingWorker(QObject):
             return False
         try:
             os.makedirs(nasMirrorDir, exist_ok=True)
-            probe = os.path.join(nasMirrorDir, '.mtv_nas_write_probe')
+            probe = os.path.join(nasMirrorDir, '.biofilm_embeddings_nas_write_probe')
             with open(probe, 'w') as f:
                 f.write('ok')
             os.remove(probe)
@@ -664,7 +664,7 @@ class ProcessingWorker(QObject):
             self.log.emit(f'  [NAS mirror] outputDir {userOutputRoot} is on the same mount '
                           f'as nasMirrorDir — auto-creating local staging dir under home.')
         stamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        staging = os.path.expanduser(f'~/mtv-staging-{stamp}')
+        staging = os.path.expanduser(f'~/biofilm-embeddings-staging-{stamp}')
         os.makedirs(staging, exist_ok=True)
         freeGb = shutil.disk_usage(staging).free / (1024 ** 3)
         if freeGb < 20:
@@ -704,7 +704,7 @@ class ProcessingWorker(QObject):
 
         self.log.emit(f'\n  [per-plate extract] launching subprocess for {os.path.basename(plateDirLocal)}…')
         cmd = [
-            sys.executable, '-m', 'microtyper_vision.embeddings.extract_one_plate',
+            sys.executable, '-m', 'biofilm_embeddings.embeddings.extract_one_plate',
             '--plate-dir', plateDirLocal,
             '--model',       str(s.get('dinov2Model', 'facebook/dinov2-base')),
             '--image-size',  str(s.get('imageSize', 518)),

@@ -28,7 +28,7 @@ class MtvApp(QMainWindow):
         super().__init__()
 
         self._buildInfo = buildString()
-        self.setWindowTitle(f'µTyper-Vision  ·  {self._buildInfo}')
+        self.setWindowTitle(f'biofilm-embeddings  ·  {self._buildInfo}')
         self.resize(1000, 750)
         self.setMinimumSize(400, 300)
 

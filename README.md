@@ -1,4 +1,4 @@
-# µTyper-Vision
+# biofilm-embeddings
 
 PySide6 GUI for biofilm phenotyping with frozen DINOv2 ViT embeddings.
 
@@ -16,7 +16,7 @@ not on PyPI, so install it editable **first**, then this package (which pulls Py
 opencv, scikit-image, tifffile, transformers, **torch>=2.7** from PyPI). Python 3.10+ recommended.
 
 ```bash
-cd ~/microTyper-Vision
+cd ~/biofilm-embeddings
 git submodule update --init             # fetch external/biofilm-processing @ v0.5.0
 pip install -e external/biofilm-processing
 pip install -e .
@@ -41,12 +41,12 @@ A VRAM probe and auto-batch-adjust is not implemented. If you hit CUDA OOM on a 
 
 ### Dev env note
 
-The sibling `~/embeddings/` repo runs in a conda env called `embeddings` with torch 2.4. That's too old for sm_120, and `pip install -e .` for this repo will try to upgrade it. If you want to keep the old env pinned and avoid disrupting `~/embeddings/`'s scripts, create a fresh env for µTyper-Vision instead.
+The sibling `~/embeddings/` repo runs in a conda env called `embeddings` with torch 2.4. That's too old for sm_120, and `pip install -e .` for this repo will try to upgrade it. If you want to keep the old env pinned and avoid disrupting `~/embeddings/`'s scripts, create a fresh env for biofilm-embeddings instead.
 
 ## Run
 
 ```bash
-mtv-gui
+biofilm-embeddings-gui
 ```
 
 ### Desktop shortcut (optional)
@@ -62,7 +62,7 @@ Works on Linux (`.desktop`), macOS (`.app` bundle), and Windows (`.bat` + `.lnk`
 - macOS: `sips -s format icns assets/dora5.jpg --out assets/dora5.icns`
 - Windows: `magick convert assets/dora5.jpg -define icon:auto-resize=256,128,64,48,32,16 assets/dora5.ico`
 
-Re-run the installer after converting. To remove later, delete `microtyper-vision.desktop` from `~/.local/share/applications/` (Linux), `µTyper-Vision.app` from `~/Desktop/` (macOS), or `µTyper-Vision.lnk` from the Desktop (Windows).
+Re-run the installer after converting. To remove later, delete `biofilm-embeddings.desktop` from `~/.local/share/applications/` (Linux), `biofilm-embeddings.app` from `~/Desktop/` (macOS), or `biofilm-embeddings.lnk` from the Desktop (Windows).
 
 ## GUI tabs
 
@@ -100,7 +100,7 @@ Re-run the installer after converting. To remove later, delete `microtyper-visio
 This repo layers the DINOv2 + dataset code (originally prototyped in `~/embeddings/`) on top
 of `~/biofilm-processing`, which it imports directly via a pinned git submodule
 (`external/biofilm-processing` @ v0.5.0) rather than copying. Processing is therefore a single
-source of truth: `microtyper_vision` ships only the GUI + embeddings layer and calls
+source of truth: `biofilm_embeddings` ships only the GUI + embeddings layer and calls
 `multiWellAnalysis.processing` from the submodule, so the `_processed.tif` render can never
 diverge from upstream. Colony tracking, whole-image, and intensity feature extraction live in
 `biofilm-processing` and are out of scope here.

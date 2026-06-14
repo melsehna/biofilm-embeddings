@@ -284,7 +284,7 @@ class ParametersTab(QWidget):
             '\n\n'
             'Staging location: if outputDir is empty or on the same network mount '
             'as the NAS destination, a local staging dir is auto-created at '
-            '~/mtv-staging-<timestamp>/ and cleaned up at the end of the run. '
+            '~/biofilm-embeddings-staging-<timestamp>/ and cleaned up at the end of the run. '
             'Otherwise outputDir is used as-is.'
         )
         nasHint.setWordWrap(True)

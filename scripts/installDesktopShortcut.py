@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a desktop shortcut for the mtv-gui (µTyper-Vision).
+"""Create a desktop shortcut for the biofilm-embeddings-gui (biofilm-embeddings).
 
 Works on Linux, macOS, and Windows. Mirrors the pattern used in
 ~/biofilm-processing/scripts/installDesktopShortcut.py.
@@ -17,12 +17,12 @@ import stat
 from pathlib import Path
 
 
-APP_NAME = 'microTyper-Vision'
-APP_DISPLAY = 'µTyper-Vision'
+APP_NAME = 'biofilm-embeddings'
+APP_DISPLAY = 'biofilm-embeddings'
 APP_COMMENT = 'Biofilm phenotyping + DINOv2 ViT embedding extraction'
-APP_BUNDLE_ID = 'edu.cmu.microtyper-vision'
+APP_BUNDLE_ID = 'edu.cmu.biofilm-embeddings'
 APP_VERSION = '0.1.0'
-GUI_BIN_NAME = 'mtv-gui'
+GUI_BIN_NAME = 'biofilm-embeddings-gui'
 
 
 def _findCondaBase():
@@ -62,7 +62,7 @@ def _envNameFromBin(guiBin):
 
 
 def findGuiBin():
-    """Find the mtv-gui executable, preferring named conda envs over base."""
+    """Find the biofilm-embeddings-gui executable, preferring named conda envs over base."""
     condaBase = _findCondaBase()
     if condaBase:
         envsDir = os.path.join(condaBase, 'envs')
@@ -109,19 +109,19 @@ def getIconPath(fmt='auto'):
     assets = repoDir / 'assets'
 
     if fmt == 'icns':
-        for name in ('dora5.icns', 'microtyper-icon.icns'):
+        for name in ('dora5.icns', 'biofilm-embeddings-icon.icns'):
             p = assets / name
             if p.exists():
                 return str(p)
         return None
     if fmt == 'ico':
-        for name in ('dora5.ico', 'microtyper-icon.ico'):
+        for name in ('dora5.ico', 'biofilm-embeddings-icon.ico'):
             p = assets / name
             if p.exists():
                 return str(p)
         return None
     if fmt == 'png':
-        for name in ('dora5.png', 'microtyper-icon.png'):
+        for name in ('dora5.png', 'biofilm-embeddings-icon.png'):
             p = assets / name
             if p.exists():
                 return str(p)
@@ -129,7 +129,7 @@ def getIconPath(fmt='auto'):
 
     # 'auto' — any raster image. Linux .desktop happily reads jpg/png.
     for name in ('dora5.png', 'dora5.jpg', 'dora5.jpeg',
-                 'microtyper-icon.png', 'microtyper-icon.jpg'):
+                 'biofilm-embeddings-icon.png', 'biofilm-embeddings-icon.jpg'):
         p = assets / name
         if p.exists():
             return str(p)

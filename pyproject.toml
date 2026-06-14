@@ -3,9 +3,9 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "microtyper-vision"
+name = "biofilm-embeddings"
 version = "0.1.0"
-description = "µTyper-Vision: biofilm image processing + DINOv2 ViT embedding extraction with a PySide6 GUI"
+description = "biofilm-embeddings: biofilm image processing + DINOv2 ViT embedding extraction with a PySide6 GUI"
 authors = [
   { name="Seh Na S. Mellick" }
 ]
@@ -51,4 +51,4 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [project.scripts]
-mtv-gui = "microtyper_vision.gui.app:run"
+biofilm-embeddings-gui = "biofilm_embeddings.gui.app:run"

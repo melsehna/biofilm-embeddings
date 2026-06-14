@@ -36,7 +36,7 @@ def discoverWellsWithMag(plateDir, plateMeta=None):
     if not plateDir or not os.path.isdir(plateDir):
         return []
 
-    from microtyper_vision.gui.plate_discovery import _resolveTifDir, _listRawTifs
+    from biofilm_embeddings.gui.plate_discovery import _resolveTifDir, _listRawTifs
     resolved = _resolveTifDir(plateDir, maxDepth=2)
     rawTifs = _listRawTifs(resolved)
 
