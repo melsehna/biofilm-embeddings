@@ -34,6 +34,16 @@ from ..plate_discovery import _resolveAllTifDirs, discoverWells
 from ...embeddings.extractor import extractAll as _extractEmbeddings
 
 
+# CIFS/SMB mounts (e.g. /mnt/phenotyper) reject chown/chgrp/chmod AND utime.
+# `rsync -a` stages each file via a temp file carrying the source mode; the
+# mount rejects even that mkstemp ("Operation not permitted") so EVERY file
+# fails before any bytes are written (rc=23, 0 bytes transferred). Strip all
+# attribute-preserving ops. Compare by size only — pipeline outputs are
+# immutable so size-only is safe without mtime.
+_NAS_RSYNC = ['rsync', '-rlD', '--partial', '--no-perms', '--no-owner',
+              '--no-group', '--no-times', '--size-only']
+
+
 def _fmtTime(seconds):
     seconds = max(0, int(seconds))
     if seconds < 60:
@@ -785,7 +795,7 @@ class ProcessingWorker(QObject):
         dstArg = nasPlateDir.rstrip('/') + '/'
         try:
             result = subprocess.run(
-                ['rsync', '-a', '--info=progress2', srcArg, dstArg],
+                [*_NAS_RSYNC, '--info=progress2', srcArg, dstArg],
                 capture_output=True, text=True, timeout=3600,
             )
             if result.returncode != 0:
