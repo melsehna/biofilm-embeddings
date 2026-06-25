@@ -62,3 +62,25 @@ def buildString():
         marker = '*' if dirty else ''
         parts.append(f'{branch} @ {short}{marker}')
     return '  ·  '.join(parts)
+
+
+def buildRecord():
+    """JSON-serializable provenance record for stamping into saved files.
+
+    Mirrors the same function in biofilm-processing so that run_params.json
+    written by biofilm-embeddings is recognised by biofilm-processing's resume
+    logic without triggering a spurious version-drift warning.
+
+    Keys: version, build (one-line string), gitBranch, gitCommit, gitDirty.
+    """
+    record = {
+        'version': __version__,
+        'build': buildString(),
+        'gitBranch': None,
+        'gitCommit': None,
+        'gitDirty': None,
+    }
+    info = gitInfo()
+    if info is not None:
+        record['gitBranch'], record['gitCommit'], record['gitDirty'] = info
+    return record

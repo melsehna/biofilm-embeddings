@@ -32,6 +32,7 @@ from PySide6.QtGui import QDesktopServices
 
 from ..plate_discovery import _resolveAllTifDirs, discoverWells
 from ...embeddings.extractor import extractAll as _extractEmbeddings
+from ..buildinfo import buildRecord
 
 
 # CIFS/SMB mounts (e.g. /mnt/phenotyper) reject chown/chgrp/chmod AND utime.
@@ -73,8 +74,9 @@ def _extractRunParams(state):
 
 def _saveRunParams(outdir, params):
     path = os.path.join(outdir, _runParamsFile)
+    payload = {**params, '_pipelineVersion': buildRecord()}
     with open(path, 'w') as f:
-        json.dump(params, f, indent=2)
+        json.dump(payload, f, indent=2)
 
 
 def _loadRunParams(outdir):
