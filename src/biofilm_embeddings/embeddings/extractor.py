@@ -25,6 +25,28 @@ from .dataset import ProcessedTifDataset
 _FINGERPRINT_FILE = 'rowFingerprint.txt'
 
 
+def resolveProcessedPath(indexDir, stored):
+    """Resolve a `processed` path from index.csv to a file that exists.
+
+    index.csv stores the ABSOLUTE path from processing time, which points at
+    the processing machine's staging dir. Under biofilm-processing's lean NAS
+    mirror that staging dir is synced to the NAS and then DELETED, so the stored
+    path is dead — and on a *different* machine reading the NAS mirror it never
+    existed (different mount point entirely). Re-resolve by basename against the
+    index.csv's own directory, which is wherever the tree is actually mounted on
+    the reading machine. Mirrors biofilm-processing's `master_csv._resolveArtifact`.
+
+    Returns the stored path if it exists (same-machine / in-place run), else the
+    basename re-resolved against `indexDir`, else '' if neither exists.
+    """
+    if not stored:
+        return ''
+    if os.path.exists(stored):
+        return stored
+    cand = os.path.join(indexDir, os.path.basename(stored))
+    return cand if os.path.exists(cand) else ''
+
+
 def _rowFingerprint(rows, embeddingParams):
     """Stable hash of (processed paths in order, params that affect embedding output).
 

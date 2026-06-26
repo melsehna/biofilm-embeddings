@@ -41,7 +41,14 @@ def _collectPlateRows(plateDir):
     df = pd.read_csv(indexPath, dtype=str).fillna('')
     if 'processed' not in df.columns:
         raise ValueError(f'{indexPath} has no `processed` column')
-    df = df[df['processed'].apply(lambda p: bool(p) and os.path.exists(p))]
+    # Re-resolve `processed` against the index's own dir so a NAS-mirrored tree
+    # (index.csv holds dead staging paths) works, and rewrite the column so the
+    # dataset reads the resolved file.
+    from .extractor import resolveProcessedPath
+    indexDir = os.path.dirname(indexPath)
+    df['processed'] = df['processed'].apply(
+        lambda p: resolveProcessedPath(indexDir, p))
+    df = df[df['processed'] != '']
 
     rows = [row.to_dict() for _, row in df.iterrows()]
     print(f'  plate {os.path.basename(plateDir)}: {len(rows)} wells', flush=True)

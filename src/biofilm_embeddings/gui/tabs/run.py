@@ -32,6 +32,7 @@ from PySide6.QtGui import QDesktopServices
 
 from ..plate_discovery import _resolveAllTifDirs, discoverWells
 from ...embeddings.extractor import extractAll as _extractEmbeddings
+from ...embeddings.extractor import resolveProcessedPath
 from ..buildinfo import buildRecord
 
 
@@ -865,7 +866,13 @@ def _collectProcessedRows(outputRoot, logFn):
             logFn(f'  skipping {indexPath}: no `processed` column')
             continue
         before = len(df)
-        df = df[df['processed'].apply(lambda p: bool(p) and os.path.exists(p))]
+        # Re-resolve `processed` against the index's own dir so NAS-mirrored
+        # trees (where index.csv stores dead staging paths) work — and rewrite
+        # the column so ProcessedTifDataset reads the resolved file.
+        indexDir = os.path.dirname(indexPath)
+        df['processed'] = df['processed'].apply(
+            lambda p: resolveProcessedPath(indexDir, p))
+        df = df[df['processed'] != '']
         kept = len(df)
 
         rows.extend(row.to_dict() for _, row in df.iterrows())
