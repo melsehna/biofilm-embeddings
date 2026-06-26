@@ -52,3 +52,4 @@ where = ["src"]
 
 [project.scripts]
 biofilm-embeddings-gui = "biofilm_embeddings.gui.app:run"
+biofilm-embeddings-run = "biofilm_embeddings.embeddings.extract_run:main"
