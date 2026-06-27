@@ -72,7 +72,28 @@ def buildParser():
                    help='Write embeddings/ here instead of into <output_root> '
                         '(e.g. local scratch for a test, or when the source tree '
                         'is read-only). Reads still come from the source tree.')
+    p.add_argument('--n-frames', dest='n_frames', type=int, default=None,
+                   help='Frames per stack to embed. Default: inferred from the '
+                        'first stack. Wells with FEWER frames are skipped (logged '
+                        'to excluded_short_wells.csv); wells with more are '
+                        'truncated. Pin this explicitly to be robust to whichever '
+                        'stack happens to be first.')
     return p
+
+
+def _frameCount(path):
+    """Frame count of a processed stack via TIFF page headers — no pixel read.
+
+    Verified to equal the dataset's true frame count (saveStack writes one page
+    per frame), at ~10x lower cost than a full load, so it's cheap enough to
+    pre-scan every well before extraction.
+    """
+    import tifffile
+    try:
+        with tifffile.TiffFile(path) as tf:
+            return len(tf.pages)
+    except Exception:
+        return None
 
 
 def main(argv=None):
@@ -100,10 +121,9 @@ def main(argv=None):
               'processedImages/index.csv with a `processed` column)', file=sys.stderr)
         return 2
 
-    # Report what was found, including magnification spread — embeddings are
-    # only valid within a single magnification (all stacks get resized to one
-    # imageSize, so mixing scales folds two physical FOVs into one space).
-    nFrames = _peekFrameCount(rows[0]['processed'])
+    # nFrames: explicit --n-frames, else inferred from the first stack. Inferring
+    # is fragile (the first stack might be a short one), so --n-frames pins it.
+    nFrames = args.n_frames if args.n_frames is not None else _peekFrameCount(rows[0]['processed'])
     plates = sorted({r.get('plate', '') for r in rows})
     mags = sorted({r.get('mag', '') for r in rows})
     objs = sorted({r.get('objective', '') for r in rows if r.get('objective')})
@@ -111,11 +131,49 @@ def main(argv=None):
     log(f'  wells:        {len(rows)}')
     log(f'  plates:       {len(plates)}')
     log(f'  magnification: {mags}  objective(s): {objs or "n/a"}')
-    log(f'  nFrames (from first stack): {nFrames}')
+    log(f'  nFrames: {nFrames}' + ('' if args.n_frames is not None else ' (inferred from first stack)'))
     if len(mags) > 1:
         log(f'  WARNING: multiple magnifications {mags} in one tree — embeddings '
             f'mix physical scales and are NOT comparable. Run one magnification '
             f'per output root.')
+
+    # Pre-filter: drop wells with FEWER than nFrames frames (e.g. a plate
+    # acquired with one fewer timepoint). The dataset would otherwise hard-crash
+    # on the first short stack, mid-run. Page-header count, cheap. The kept set
+    # all has >= nFrames (the dataset truncates the extras), so the embeddings
+    # are frame-aligned. Excluded wells are recorded next to the cache.
+    log(f'  checking frame counts across {len(rows)} wells…')
+    kept, shortRows = [], []
+    for r in rows:
+        fc = _frameCount(r['processed'])
+        if fc is not None and fc >= nFrames:
+            kept.append(r)
+        else:
+            r = dict(r); r['_frames'] = '' if fc is None else fc
+            shortRows.append(r)
+    if shortRows:
+        from collections import Counter
+        byPlate = Counter(r.get('plate', '') for r in shortRows)
+        log(f'  SKIPPING {len(shortRows)} wells with < {nFrames} frames (or unreadable):')
+        for pl, n in sorted(byPlate.items()):
+            log(f'    {n} wells — plate {pl}')
+        if not args.dry_run:
+            import csv as _csv
+            embDir = os.path.join(args.cache_dir or root, 'embeddings')
+            os.makedirs(embDir, exist_ok=True)
+            exPath = os.path.join(embDir, 'excluded_short_wells.csv')
+            with open(exPath, 'w', newline='') as f:
+                w = _csv.writer(f)
+                w.writerow(['plate', 'well', 'mag', 'frames', 'needed', 'processed'])
+                for r in shortRows:
+                    w.writerow([r.get('plate', ''), r.get('well', ''), r.get('mag', ''),
+                                r.get('_frames', ''), nFrames, r.get('processed', '')])
+            log(f'  excluded wells recorded: {exPath}')
+    rows = kept
+    if not rows:
+        print(f'ERROR: no wells left with >= {nFrames} frames.', file=sys.stderr)
+        return 2
+    log(f'  embedding {len(rows)} wells at {nFrames} frames')
 
     # --limit: smoke-test on the first N wells (after the full report above, so
     # you still see the true totals).

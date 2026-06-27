@@ -119,6 +119,19 @@ Re-run the installer after converting. To remove later, delete `biofilm-embeddin
                                                   #       wells, plates, index, gridSize, model
 ```
 
+## Data notes
+
+- **Frame counts must be uniform within an extraction.** Extraction uses one `nFrames`
+  (inferred from the first stack, or pinned with `--n-frames`); stacks with more frames are
+  truncated, and stacks with **fewer are skipped** and recorded in
+  `<root>/embeddings/excluded_short_wells.csv`. Keep `nFrames` (and `--model` / `--image-size`
+  / `--grid-size`) identical across datasets you intend to compare.
+- **Training set — plate `241016_111201_Plate 1` is 30 frames.** That whole plate (96 wells) was
+  acquired with 30 timepoints; every other training plate is 31. With `nFrames=31` (to match the
+  reimaging set, which is uniformly 31), those **96 wells are auto-skipped**, so training
+  embeddings cover **1632 of 1728 wells (17 of 18 plates)**. See the skipped list in
+  `excluded_short_wells.csv`.
+
 ## Project context
 
 This repo layers the DINOv2 + dataset code (originally prototyped in `~/embeddings/`) on top

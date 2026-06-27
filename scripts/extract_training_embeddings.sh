@@ -18,6 +18,12 @@
 # Defaults (dinov2-base, 518, grid 3) are the same in both scripts — only override
 # them in BOTH or neither.
 #
+# DATA NOTE: one training plate — 241016_111201_Plate 1 (96 wells) — was acquired
+# with 30 timepoints, not 31. nFrames is 31 (to match the reimaging set), so those
+# 96 wells are AUTO-SKIPPED and listed in <root>/embeddings/excluded_short_wells.csv.
+# Training embeddings therefore cover 1632 of 1728 wells (17 of 18 plates). All
+# other plates are 31 frames. The skip is automatic — no flag needed.
+#
 # Usage:
 #   conda activate embeddings        # the env with biofilm-embeddings installed
 #   bash scripts/extract_training_embeddings.sh                 # full run
