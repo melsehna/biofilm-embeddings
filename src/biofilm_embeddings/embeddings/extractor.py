@@ -52,9 +52,12 @@ def _rowFingerprint(rows, embeddingParams):
 
     Used to detect when on-disk batches/ no longer correspond to the current
     row set or extraction parameters — prevents silent cache corruption when
-    a stopped extraction is resumed with different inputs. Throughput-only
-    params (wellBatch, workers, prefetch) are deliberately excluded so a
-    user can tune them between resume attempts without invalidating work.
+    a stopped extraction is resumed with different inputs. wellBatch IS included
+    because it sets the batch-index -> well mapping (`range(b*wellBatch, ...)`),
+    so changing it would make recycled batch_*.pt files cover the wrong wells —
+    silent corruption. Only the truly throughput-only params (workers, prefetch),
+    which don't affect batch composition, are excluded so they can be tuned
+    freely between resume attempts.
     """
     h = hashlib.sha256()
     for k in sorted(embeddingParams):
@@ -338,6 +341,7 @@ def extractAll(
         'extractCls':      extractCls,
         'extractPatches':  extractPatches,
         'gridSize':        gridSize,
+        'wellBatch':       wellBatch,   # sets batch->well mapping; see _rowFingerprint
     }
     fingerprint = _rowFingerprint(rows, embeddingParams)
     fpPath = batchDir / _FINGERPRINT_FILE
